@@ -16,7 +16,7 @@ class App < Roda
       r.post do
         message = r.params['message'] || 'The content of user input is empty!'
         stream do |out|
-          stream_openai_response(message).each { |v| out << v }
+          stream_openai_response(message).each { |v| out << v; sleep(0.1) }
         end
       end
     end
