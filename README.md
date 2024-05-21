@@ -13,6 +13,8 @@ Clone the repository.
 Run `bundle install` to install the required Ruby gems.
 Create a .env file in the root directory and add your OpenAI API key as `OPENAI_API_KEY=your_api_key_here`.
 
+Or, use $`export OPENAI_API_KEY=your_api_key_here` to set the key in enviroment.
+
 ## Usage
 To use the API wrapper, you can call the send_message method from the RubyOpenAI::ChatGPTAPI class. Here's a simple example:
 
