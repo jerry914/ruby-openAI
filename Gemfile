@@ -14,3 +14,5 @@ gem 'langchainrb', '~> 0.7.3'
 gem 'ruby-openai', '~> 5.2.0'
 
 gem 'diffy'
+
+gem 'digest'

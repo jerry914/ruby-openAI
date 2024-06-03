@@ -3,6 +3,7 @@
 require 'set'
 require 'matrix'
 require 'csv'
+require 'digest'
 
 # Read text from all files in a directory
 def read_files(directory)
@@ -86,7 +87,6 @@ def levenshtein_distance(str1, str2)
   d[m][n]
 end
 
-
 # Normalize Levenshtein Distance
 def normalized_levenshtein_distance(text1, text2)
   max_length = [text1.length, text2.length].max
@@ -113,49 +113,126 @@ def overlap_coefficient(text1, text2)
   intersection / [set1.length, set2.length].min.to_f
 end
 
+# Winnowing Algorithm
+def tokenize(text)
+  text.downcase.scan(/\w+/)
+end
+
+def hash_tokens(tokens)
+  tokens.map { |token| Digest::SHA1.hexdigest(token)[0, 8].to_i(16) }
+end
+
+def k_grams(hashes, k)
+  hashes.each_cons(k).to_a
+end
+
+def fingerprints(k_grams, w)
+  window_min = []
+  k_grams.each_cons(w) do |window|
+    window_min << window.min_by { |k_gram| k_gram.first }
+  end
+  window_min.uniq
+end
+
+def winnowing(doc1, doc2, k, w)
+  tokens1 = tokenize(doc1)
+  tokens2 = tokenize(doc2)
+
+  hashes1 = hash_tokens(tokens1)
+  hashes2 = hash_tokens(tokens2)
+
+  k_grams1 = k_grams(hashes1, k)
+  k_grams2 = k_grams(hashes2, k)
+
+  fingerprints1 = fingerprints(k_grams1, w)
+  fingerprints2 = fingerprints(k_grams2, w)
+
+  matches = fingerprints1 & fingerprints2
+  matches.length.to_f / [fingerprints1.length, fingerprints2.length].min
+end
+
 def plagiarism_checker(directory, output_file)
+  k = 3 # Size of k-grams
+  w = 4 # Size of the window
   files_content = read_files(directory)
 
+  # Open CSV file for writing
   CSV.open(output_file, 'w') do |csv|
-    csv << ["File 1", "File 2", "Jaccard Similarity", "Jaccard Similarity with Bigrams", "Cosine Similarity", "Overlap Coefficient", "Normalized Levenshtein Distance", "Normalized Hamming Distance"]
+    # Define CSV headers including execution times for each algorithm
+    csv << ["File 1", "File 2", "Jaccard Similarity", "Jaccard Similarity Execution Time (s)", "Jaccard Similarity with Bigrams", "Jaccard with Bigrams Execution Time (s)", "Cosine Similarity", "Cosine Similarity Execution Time (s)", "Overlap Coefficient", "Overlap Coefficient Execution Time (s)", "Normalized Levenshtein Distance", "Normalized Levenshtein Distance Execution Time (s)", "Normalized Hamming Distance", "Normalized Hamming Distance Execution Time (s)", "Winnowing", "Winnowing Execution Time (s)"]
 
     files_content.keys.combination(2).each do |file1, file2|
       text1 = files_content[file1]
       text2 = files_content[file2]
-
+      start_time = Time.now
       jaccard = jaccard_similarity(text1, text2)
-      jaccard_with_bigrams = jaccard_similarity_with_bigrams(text1, text2).round(2)
+      jaccard_time = Time.now - start_time
+
+      start_time = Time.now
+      jaccard_with_bigrams = jaccard_similarity_with_bigrams(text1, text2)
+      jaccard_with_bigrams_time = Time.now - start_time
+
+      start_time = Time.now
       cosine = cosine_similarity(text1, text2)
+      cosine_time = Time.now - start_time
+
+      start_time = Time.now
       overlap = overlap_coefficient(text1, text2)
+      overlap_time = Time.now - start_time
+
+      start_time = Time.now
       levenshtein = 1 - normalized_levenshtein_distance(text1, text2)
+      levenshtein_time = Time.now - start_time
 
-      hamming = text1.length == text2.length ? 1 - normalized_hamming_distance(text1, text2).round(2) : "N/A"
+      hamming_time = 0
+      hamming = "N/A"
+      if text1.length == text2.length
+        start_time = Time.now
+        hamming = 1 - normalized_hamming_distance(text1, text2)
+        hamming_time = Time.now - start_time
+      end
 
-      csv << [File.basename(file1), File.basename(file2), jaccard.round(2), jaccard_with_bigrams.round(2), cosine.round(2), overlap.round(2), levenshtein.round(2), hamming]
+      start_time = Time.now
+      winnowing = winnowing(text1, text2, k, w)
+      winnowing_time = Time.now - start_time
+
+      # Write to CSV
+      csv << [
+        File.basename(file1), File.basename(file2),
+        jaccard.round(2), jaccard_time.round(4),
+        jaccard_with_bigrams.round(2), jaccard_with_bigrams_time.round(4),
+        cosine.round(2), cosine_time.round(4),
+        overlap.round(2), overlap_time.round(4),
+        levenshtein.round(2), levenshtein_time.round(4),
+        hamming, hamming_time.round(4),
+        winnowing.round(2), winnowing_time.round(4)
+      ]
     end
   end
 end
 
 def create_comparison_matrix(directory, output_file)
+  k = 3 # Size of k-grams
+  w = 4 # Size of the window
   files_content = read_files(directory)
   file_names = files_content.keys.map { |file| File.basename(file) }
 
   CSV.open(output_file, "w") do |csv|
     # Creating the header
-    csv << ['File / Method'] + file_names
+    csv << ['File / Method'] + file_names + ["Execution Time (s)"]
 
     file_names.each do |file1|
       row = [file1]
       text1 = files_content[File.join(directory, file1)]
 
+      start_time = Time.now
+
       file_names.each do |file2|
         text2 = files_content[File.join(directory, file2)]
 
         if file1 == file2
-          # Fill diagonal with N/A
           row << 'N/A'
         else
-          # Calculate and add each metric
           jaccard = jaccard_similarity(text1, text2).round(2)
           jaccard_with_bigrams = jaccard_similarity_with_bigrams(text1, text2).round(2)
           cosine = cosine_similarity(text1, text2).round(2)
@@ -163,19 +240,23 @@ def create_comparison_matrix(directory, output_file)
           levenshtein = (1 - normalized_levenshtein_distance(text1, text2)).round(2)
           hamming = text1.length == text2.length ? (1 - normalized_hamming_distance(text1, text2)).round(2) : "N/A"
 
-          # Concatenating all measures into a single string for the cell
-          row << "J: #{jaccard}, JB: #{jaccard_with_bigrams}, C: #{cosine}, O: #{overlap}, L: #{levenshtein}, H: #{hamming}"
+          row << "J: #{jaccard}, JB: #{jaccard_with_bigrams}, C: #{cosine}, O: #{overlap}, L: #{levenshtein}, H: #{hamming}m"
         end
       end
+
+      end_time = Time.now
+      execution_time = end_time - start_time
+      row << execution_time.round(2)
+
       csv << row
     end
   end
 end
 
 # Usage
-folder_index = 2
-directory = "homework_sample/HW#{folder_index}"
-output_file = "output/plagiarism_results#{folder_index}.csv"
+folder_name = 'baft'
+directory = "homework_sample/#{folder_name}"
+output_file = "output/plagiarism_results#{folder_name}.csv"
 plagiarism_checker(directory, output_file)
-# output_file = "output/comparison_matrix#{folder_index}.csv"
+# output_file = "output/comparison_matrix#{folder_name}.csv"
 # create_comparison_matrix(directory, output_file)
